@@ -1,11 +1,10 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include "matrix.h"
 
 #define N MAX_SIZE
-#define NUM_STEPS 8
+#define NUM_STEPS 10
 
 typedef struct {
     const char *name;
@@ -132,7 +131,7 @@ void run_scenario(FILE *out, const Matrix *P,
                   int question, const Scenario *s)
 {
     const int steps[NUM_STEPS] = {
-        0, 1, 2, 10, 50, 100, 500, 1000
+        0, 1, 2, 10, 50, 51, 52, 100, 500, 1000
     };
 
     Matrix V = make_initial(s);
