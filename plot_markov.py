@@ -1,71 +1,211 @@
+
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ---------------------------------------------------------
-# 1. Load the Transition Matrix P (27 x 27)
-# ---------------------------------------------------------
-# Replace 'matrix.txt' with your matrix file path
-P = np.loadtxt('matrix.txt')
+# ============================================================
+# QUESTION 7: Starting from transient states {3, 7, 23}
+# ============================================================
 
-N_STEPS = 50
-steps = np.arange(N_STEPS + 1)
-target_states = [1, 4, 11, 20, 24]  # 0-indexed: States 2, 5, 12, 21, 25
-state_labels = ['State 2', 'State 5', 'State 12', 'State 21', 'State 25']
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+BASE_DIR = Path.home() / "Desktop" / "Marco"
+MATRIX_FILE = BASE_DIR / "matrix.txt"
+OUTPUT_DIR = BASE_DIR / "figures"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-def simulate_distribution(v0, P, num_steps):
-    """Propagate initial distribution v0 across num_steps."""
-    history = np.zeros((num_steps + 1, P.shape[0]))
-    v = v0.copy()
-    history[0] = v
-    for step in range(1, num_steps + 1):
-        v = np.dot(v, P)
-        history[step] = v
+TRANSIENT_STATES = [3, 7, 23]
+CLASS_C = [6, 17, 20]
+
+initial_conditions = {
+    "Start in State 3": np.array([1.0, 0.0, 0.0]),
+    "Equal weights": np.array([1/3, 1/3, 1/3]),
+    "Custom weights": np.array([0.50, 0.30, 0.20]),
+}
+
+# ============================================================
+# 1. Load and validate the matrix
+# ============================================================
+
+if not MATRIX_FILE.exists():
+    raise FileNotFoundError(
+        f"Matrix not found: {MATRIX_FILE}\n"
+        "Check MATRIX_FILE at the top of this script."
+    )
+
+P = np.loadtxt(MATRIX_FILE, dtype=float)
+
+if P.shape != (27, 27):
+    raise ValueError(f"Expected a 27x27 matrix; got {P.shape}.")
+
+if np.any(P < -1e-12):
+    raise ValueError("Matrix contains negative probabilities.")
+
+if not np.allclose(P.sum(axis=1), 1.0, atol=1e-10):
+    raise ValueError("Rows of P must sum to 1.")
+
+print("Matrix validation: PASSED")
+
+# ============================================================
+# 2. Verify Class C is a deterministic 3-cycle
+# ============================================================
+
+c_idx = np.array(CLASS_C) - 1
+P_C = P[np.ix_(c_idx, c_idx)]
+
+expected_cycle = np.array([
+    [0, 1, 0],
+    [0, 0, 1],
+    [1, 0, 0],
+], dtype=float)
+
+print("\nCLASS C TRANSITION MATRIX (states 6, 17, 20)")
+print(P_C)
+
+if np.allclose(P_C, expected_cycle, atol=1e-10):
+    print("Confirmed: 6 -> 17 -> 20 -> 6, period 3.")
+else:
+    print("WARNING: Class C does not match the expected deterministic cycle.")
+
+# ============================================================
+# 3. Simulate pi_(n+1) = pi_n P
+# ============================================================
+
+def simulate(P, initial, steps):
+    """Simulate a row-vector Markov chain."""
+    history = np.zeros((steps + 1, len(initial)))
+    history[0] = initial
+
+    for n in range(steps):
+        history[n + 1] = history[n] @ P
+
     return history
 
-# ---------------------------------------------------------
-# 2. Define Initial Vectors for Q1, Q2, and Q3
-# ---------------------------------------------------------
-# Question 1: Start strictly at State 2
-v1 = np.zeros(27)
-v1[1] = 1.0
 
-# Question 2: Equal probabilities across {2, 5, 12, 21, 25}
-v2 = np.zeros(27)
-v2[target_states] = 0.2
+steps = 1000
+results = {}
 
-# Question 3: Arbitrary probabilities (e.g., a=0.10, b=0.30, c=0.20, d=0.25, e=0.15)
-v3 = np.zeros(27)
-v3[target_states] = [0.10, 0.30, 0.20, 0.25, 0.15]
+for name, weights in initial_conditions.items():
+    initial = np.zeros(27)
+    initial[np.array(TRANSIENT_STATES) - 1] = weights
 
-distributions = [
-    (v1, "Question 1: Starting from State 2", "q1.png"),
-    (v2, "Question 2: Equal Initial Probabilities", "q2.png"),
-    (v3, "Question 3: General Initial Probabilities", "q3.png")
-]
+    history = simulate(P, initial, steps)
+    results[name] = {
+        "weights": weights,
+        "history": history,
+    }
 
-# ---------------------------------------------------------
-# 3. Generate and Save Figures
-# ---------------------------------------------------------
-for v0, title, filename in distributions:
-    history = simulate_distribution(v0, P, N_STEPS)
-    
-    plt.figure(figsize=(8, 5))
-    for idx, state_idx in enumerate(target_states):
-        plt.plot(steps, history[:, state_idx], label=state_labels[idx], 
-                 linewidth=2, color=colors[idx])
-        
-    plt.title(title, fontsize=12, fontweight='bold')
-    plt.xlabel('Step (n)', fontsize=11)
-    plt.ylabel('Probability', fontsize=11)
-    plt.xlim(0, N_STEPS)
-    plt.ylim(0, 1.05)
-    plt.grid(True, linestyle='--', alpha=0.6)
-    plt.legend(loc='upper right', frameon=True)
-    plt.tight_layout()
-    
-    # Save image for inclusion in LaTeX
-    plt.savefig(f"figures/{filename}", dpi=300)
-    plt.close()
+# ============================================================
+# 4. Print the table for starting in State 3
+# ============================================================
 
-print("Graphs successfully generated and saved to the 'figures/' folder.")
+selected_steps = [0, 1, 2, 10, 50, 51, 52, 100, 500, 1000]
+table_states = [3, 6, 17, 20]
+table_idx = np.array(table_states) - 1
+
+history3 = results["Start in State 3"]["history"]
+
+print("\nTABLE: STARTING IN STATE 3")
+print("Columns:", ["n"] + [f"pi_{s}" for s in table_states])
+print("-" * 65)
+
+for n in selected_steps:
+    values = history3[n, table_idx]
+    print(
+        f"{n:4d}  "
+        + "  ".join(f"{value:.6f}" for value in values)
+    )
+
+# ============================================================
+# 5. Check transient mass and cyclic behavior
+# ============================================================
+
+transient_idx = np.array(TRANSIENT_STATES) - 1
+class_idx = np.array(CLASS_C) - 1
+
+print("\nTRANSIENT MASS AND CLASS C PROBABILITIES")
+
+for name, result in results.items():
+    history = result["history"]
+
+    print(f"\n{name}")
+    for n in [10, 50, 100, 500, 1000]:
+        transient_mass = history[n, transient_idx].sum()
+        class_c_probs = history[n, class_idx]
+
+        print(
+            f"n={n:4d}: transient mass={transient_mass:.8f}, "
+            f"(pi_6, pi_17, pi_20)="
+            f"{np.round(class_c_probs, 8)}"
+        )
+
+# Compare distributions three steps apart.
+# A deterministic 3-cycle produces the same phase after 3 steps
+# once all probability is in Class C.
+print("\nTHREE-STEP PERIODICITY CHECK")
+for name, result in results.items():
+    history = result["history"]
+    error = np.max(np.abs(history[1000] - history[997]))
+    print(f"{name}: max |pi_1000 - pi_997| = {error:.3e}")
+
+# ============================================================
+# 6. Stationary distribution of Class C
+# ============================================================
+
+pi_C = np.array([1/3, 1/3, 1/3])
+
+print("\nSTATIONARY DISTRIBUTION OF CLASS C")
+print("State order:", CLASS_C)
+print("pi_C =", pi_C)
+print("Stationarity check:", np.allclose(pi_C @ P_C, pi_C))
+
+# Check whether equal initial weights actually give the uniform
+# distribution on Class C at each selected time.
+history_equal = results["Equal weights"]["history"]
+
+print("\nEQUAL-WEIGHT CHECK")
+for n in [0, 1, 2, 10, 50, 51, 52, 100, 1000]:
+    class_c_probs = history_equal[n, class_idx]
+    is_uniform = np.allclose(class_c_probs, pi_C, atol=1e-8)
+    print(
+        f"n={n:4d}: Class C probabilities="
+        f"{np.round(class_c_probs, 8)}, uniform={is_uniform}"
+    )
+
+# ============================================================
+# 7. Plot probabilities for all three initial conditions
+# ============================================================
+
+fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
+
+plot_states = [3, 7, 23, 6, 17, 20]
+
+for ax, (name, result) in zip(axes, results.items()):
+    history = result["history"]
+
+    for state in plot_states:
+        ax.plot(
+            range(steps + 1),
+            history[:, state - 1],
+            linewidth=1.4,
+            label=f"State {state}",
+        )
+
+    ax.set_title(name)
+    ax.set_ylabel("Probability")
+    ax.grid(True, alpha=0.3)
+    ax.legend(ncol=3, fontsize=8, loc="best")
+
+axes[-1].set_xlabel("Step n")
+
+fig.suptitle(
+    "Question 7: Probability Evolution from States 3, 7, and 23",
+    fontsize=14,
+)
+fig.tight_layout()
+
+plot_path = OUTPUT_DIR / "q7.png"
+fig.savefig(plot_path, dpi=200, bbox_inches="tight")
+plt.close(fig)
+
+print(f"\nPlot saved to: {plot_path}")
+print("Question 7 calculations completed.")
